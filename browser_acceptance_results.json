@@ -1,0 +1,46 @@
+{
+  "homepage_slideshow": {
+    "status": "PASS",
+    "evidence": "Title: 'LUXE.TECH \u2014 Fashion Intelligence'; Hero count: 1, Trend cards: 8"
+  },
+  "image_loading": {
+    "status": "PASS",
+    "evidence": "Inspected 15 images: 15 loaded with naturalWidth > 0, 0 broken."
+  },
+  "category_filters": {
+    "status": "PASS",
+    "evidence": "Navigated to /trend; found 11 filter pills; tested ['ALL CATEGORIES', 'COLOR', 'MATERIALS', 'SILHOUETTES'] successfully"
+  },
+  "trend_detail_and_sources": {
+    "status": "PASS",
+    "evidence": "Publisher attribution present: True; HTTPS outbound links: True; Evidence text: True"
+  },
+  "vision_lab_upload": {
+    "status": "PASS",
+    "evidence": "Extracted colors: True; Measured features: True; AI distinguished: True"
+  },
+  "product_page": {
+    "status": "PASS",
+    "evidence": "Navigated to /product; content snippet: 'LUXE.TECH HOME TREND VIDEO PRODUCT RETAIL FORECAST PROPHECY SUBMIT TREND VISION '"
+  },
+  "retail_page": {
+    "status": "PASS",
+    "evidence": "Navigated to /retail; content snippet: 'LUXE.TECH HOME TREND VIDEO PRODUCT RETAIL FORECAST PROPHECY SUBMIT TREND VISION '"
+  },
+  "forecast_page": {
+    "status": "PASS",
+    "evidence": "Navigated to /forecast; honest observation state surfaced: True"
+  },
+  "mobile_responsiveness": {
+    "status": "PASS",
+    "evidence": "Rendered at 375x812; hamburger visible: True; mobile menu opened: True"
+  },
+  "cleanup": {
+    "status": "PASS",
+    "evidence": "Local test file removed and test DB image records cleaned up safely."
+  },
+  "console_and_network": {
+    "status": "PASS",
+    "evidence": "Console errors: 0, Failed network requests: 0"
+  }
+}

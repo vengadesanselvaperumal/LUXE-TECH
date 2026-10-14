@@ -1,0 +1,339 @@
+-- ============================================================================
+-- LUXE.TECH — Phase 18 Hardened First-Install Application Schema
+-- Location: supabase/proposals/luxe_phase18_hardened_first_install.sql
+-- Status: HARDENED CANDIDATE PROPOSAL (Offline Review Only — Not Deployed)
+--
+-- TARGET: Dedicated LUXE.TECH Supabase Project (SQL Editor Initial Setup)
+--
+-- SECURITY & GOVERNANCE INVARIANTS:
+-- 1. NO hardcoded, default, or placeholder credentials in executable DDL.
+--    Role 'luxe_app_user' must be provisioned by the operator prior to running
+--    this migration. An explicit pre-check aborts execution if the role is missing.
+-- 2. Scoped permissions: GRANT and REVOKE statements strictly target the 11
+--    LUXE.TECH tables (no wildcard 'ALL TABLES IN SCHEMA public').
+-- 3. Row Level Security is ENABLED on all 11 application tables.
+-- 4. PostgREST fail-closed: All privileges on the 11 tables are REVOKED from
+--    'anon' and 'authenticated' roles. Direct HTTP requests return 401/403/empty.
+-- 5. Least-Privilege Runtime: Role 'luxe_app_user' possesses DML only and
+--    retains NOSUPERUSER, NOCREATEDB, NOREPLICATION, and NOBYPASSRLS.
+-- 6. Explicit Runtime Policies: Table policies grant DML to 'luxe_app_user'.
+--    NOTE: USING (true) policies delegate per-user isolation to the FastAPI
+--    application layer. FastAPI must enforce user ownership on personal records.
+-- 7. Decoupled Storage: Storage bucket provisioning is strictly excluded.
+-- 8. Relational 'images.user_id' is deferred (retains 13-column ImageRecord parity).
+-- 9. Zero destructive commands: No DROP TABLE, TRUNCATE, or CASCADE statements.
+-- ============================================================================
+
+BEGIN;
+
+-- ============================================================================
+-- 1. RUNTIME DATABASE ROLE PREREQUISITE VERIFICATION
+-- ============================================================================
+-- The backend connects using the dedicated least-privilege role 'luxe_app_user'.
+-- To prevent credential leakage or deployment with insecure default passwords,
+-- this migration does NOT create the role with a placeholder password.
+--
+-- OPERATOR PREREQUISITE:
+-- Before executing this script, provision 'luxe_app_user' in a private SQL
+-- session or administrative console using a cryptographically secure password:
+--
+--   CREATE ROLE luxe_app_user WITH
+--       LOGIN
+--       PASSWORD '<your_high_entropy_secret_password>'
+--       NOSUPERUSER
+--       NOCREATEDB
+--       NOREPLICATION
+--       NOBYPASSRLS;
+--
+-- The block below verifies that the role exists before proceeding.
+-- If the role is missing, the transaction will immediately abort.
+-- ============================================================================
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'luxe_app_user') THEN
+        RAISE EXCEPTION 'Prerequisite failed: Database role "luxe_app_user" does not exist. Please create the role with a secure password prior to executing this migration.';
+    END IF;
+END
+$$;
+
+-- Grant schema-level usage to the verified runtime role
+GRANT USAGE ON SCHEMA public TO luxe_app_user;
+
+-- ============================================================================
+-- 2. CORE APPLICATION TABLES (DEPENDENCY ORDER)
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 2.1 USERS (Application accounts & profile data)
+-- ----------------------------------------------------------------------------
+-- Note on password_hash: Kept nullable initially to preserve backward compatibility
+-- with demo seed accounts. Production hardening will enforce NOT NULL.
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.users (
+    id VARCHAR PRIMARY KEY,
+    email VARCHAR NOT NULL,
+    name VARCHAR NOT NULL,
+    password_hash VARCHAR,
+    role VARCHAR NOT NULL DEFAULT 'user',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX ix_users_email ON public.users (email);
+
+-- ----------------------------------------------------------------------------
+-- 2.2 TRENDS (Core fashion trend intelligence catalog)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.trends (
+    id VARCHAR PRIMARY KEY,
+    slug VARCHAR NOT NULL,
+    name VARCHAR NOT NULL,
+    category VARCHAR NOT NULL,
+    season VARCHAR NOT NULL DEFAULT 'SS 2027',
+    description TEXT NOT NULL,
+    image_url VARCHAR,
+    status VARCHAR NOT NULL DEFAULT 'emerging',
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 80.0,
+    momentum DOUBLE PRECISION NOT NULL DEFAULT 25.0,
+    velocity DOUBLE PRECISION NOT NULL DEFAULT 15.0,
+    acceleration DOUBLE PRECISION NOT NULL DEFAULT 5.0,
+    data_status VARCHAR NOT NULL DEFAULT 'demo',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX ix_trends_slug ON public.trends (slug);
+CREATE INDEX ix_trends_category ON public.trends (category);
+
+-- ----------------------------------------------------------------------------
+-- 2.3 TREND_SIGNALS (Multi-channel market data points)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.trend_signals (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR NOT NULL REFERENCES public.trends(id) ON DELETE CASCADE,
+    source VARCHAR NOT NULL,
+    signal_type VARCHAR NOT NULL,
+    strength DOUBLE PRECISION NOT NULL,
+    direction VARCHAR NOT NULL DEFAULT 'up',
+    timestamp TIMESTAMPTZ DEFAULT now(),
+    metadata_json TEXT DEFAULT '{}',
+    data_status VARCHAR NOT NULL DEFAULT 'demo'
+);
+CREATE INDEX ix_trend_signals_trend_id ON public.trend_signals (trend_id);
+
+-- ----------------------------------------------------------------------------
+-- 2.4 TREND_DNA (Visual, material, and palette DNA profile)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.trend_dna (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR NOT NULL UNIQUE REFERENCES public.trends(id) ON DELETE CASCADE,
+    colors_json TEXT DEFAULT '[]',
+    materials_json TEXT DEFAULT '[]',
+    textures_json TEXT DEFAULT '[]',
+    silhouettes_json TEXT DEFAULT '[]',
+    patterns_json TEXT DEFAULT '[]',
+    visual_description TEXT,
+    ai_interpretation TEXT,
+    data_status VARCHAR NOT NULL DEFAULT 'demo',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 2.5 IMAGES (Computer vision extraction & image asset catalog)
+-- ----------------------------------------------------------------------------
+-- Retains exact 13-column parity with SQLAlchemy ImageRecord model.
+-- User attribution is namespaced in storage_path ('{user_id}/{uuid}_{filename}').
+-- Relational user_id column addition is deferred to a future coordinated migration.
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.images (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR REFERENCES public.trends(id) ON DELETE SET NULL,
+    storage_path VARCHAR NOT NULL,
+    public_url VARCHAR NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    dominant_colors_json TEXT DEFAULT '[]',
+    contrast DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    brightness DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    saturation DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    edge_density DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    data_status VARCHAR NOT NULL DEFAULT 'demo',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX ix_images_trend_id ON public.images (trend_id);
+
+-- ----------------------------------------------------------------------------
+-- 2.6 COLLECTIONS (Editorial design capsules synthesized for trends)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.collections (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR NOT NULL REFERENCES public.trends(id) ON DELETE CASCADE,
+    name VARCHAR NOT NULL,
+    description TEXT NOT NULL,
+    color_palette_json TEXT DEFAULT '[]',
+    materials_json TEXT DEFAULT '[]',
+    textures_json TEXT DEFAULT '[]',
+    silhouettes_json TEXT DEFAULT '[]',
+    patterns_json TEXT DEFAULT '[]',
+    product_opportunities_json TEXT DEFAULT '[]',
+    data_status VARCHAR NOT NULL DEFAULT 'demo',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX ix_collections_trend_id ON public.collections (trend_id);
+
+-- ----------------------------------------------------------------------------
+-- 2.7 PRODUCTS (Commercial product opportunities derived from trends)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.products (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR REFERENCES public.trends(id) ON DELETE SET NULL,
+    name VARCHAR NOT NULL,
+    category VARCHAR NOT NULL,
+    description TEXT NOT NULL,
+    material VARCHAR NOT NULL,
+    silhouette VARCHAR NOT NULL,
+    color VARCHAR NOT NULL,
+    target_consumer VARCHAR NOT NULL,
+    opportunity_score DOUBLE PRECISION NOT NULL DEFAULT 75.0,
+    ai_reasoning TEXT,
+    data_status VARCHAR NOT NULL DEFAULT 'demo',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX ix_products_trend_id ON public.products (trend_id);
+
+-- ----------------------------------------------------------------------------
+-- 2.8 RETAIL_SIGNALS (Geographic and categorical retail velocity metrics)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.retail_signals (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR REFERENCES public.trends(id) ON DELETE SET NULL,
+    region VARCHAR NOT NULL,
+    category VARCHAR NOT NULL,
+    demand DOUBLE PRECISION NOT NULL,
+    growth DOUBLE PRECISION NOT NULL,
+    consumer_signal TEXT NOT NULL,
+    timestamp TIMESTAMPTZ DEFAULT now(),
+    data_status VARCHAR NOT NULL DEFAULT 'demo'
+);
+CREATE INDEX ix_retail_signals_trend_id ON public.retail_signals (trend_id);
+
+-- ----------------------------------------------------------------------------
+-- 2.9 FORECASTS (Statistical time-series forecasts & backtest accuracy)
+-- ----------------------------------------------------------------------------
+-- Column named 'confidence' matches SQLAlchemy mapping:
+-- backtest_accuracy = Column("confidence", Float, nullable=False)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.forecasts (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR NOT NULL REFERENCES public.trends(id) ON DELETE CASCADE,
+    model VARCHAR NOT NULL,
+    horizon VARCHAR NOT NULL DEFAULT '3_months',
+    forecast_value DOUBLE PRECISION NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    training_start TIMESTAMPTZ,
+    training_end TIMESTAMPTZ,
+    data_status VARCHAR NOT NULL DEFAULT 'demo',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX ix_forecasts_trend_id ON public.forecasts (trend_id);
+
+-- ----------------------------------------------------------------------------
+-- 2.10 PROPHECY (5-stage predictive trajectory timeline)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.prophecy (
+    id VARCHAR PRIMARY KEY,
+    trend_id VARCHAR NOT NULL REFERENCES public.trends(id) ON DELETE CASCADE,
+    stage VARCHAR NOT NULL,
+    forecast TEXT NOT NULL,
+    evidence_json TEXT DEFAULT '[]',
+    opportunity TEXT NOT NULL,
+    risk TEXT NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    data_status VARCHAR NOT NULL DEFAULT 'demo',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX ix_prophecy_trend_id ON public.prophecy (trend_id);
+
+-- ----------------------------------------------------------------------------
+-- 2.11 SAVED_TRENDS (User personal bookmarks / isolated per user)
+-- ----------------------------------------------------------------------------
+CREATE TABLE public.saved_trends (
+    id VARCHAR PRIMARY KEY,
+    user_id VARCHAR NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    trend_id VARCHAR NOT NULL REFERENCES public.trends(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT uq_saved_trends_user_trend UNIQUE (user_id, trend_id)
+);
+CREATE INDEX ix_saved_trends_user_id ON public.saved_trends (user_id);
+CREATE INDEX ix_saved_trends_trend_id ON public.saved_trends (trend_id);
+
+-- ============================================================================
+-- 3. PERMISSIONS & POSTGREST FAIL-CLOSED ENFORCEMENT
+-- ============================================================================
+
+-- Grant standard DML operations to the backend runtime role (strictly scoped to the 11 tables)
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    public.users,
+    public.trends,
+    public.trend_signals,
+    public.trend_dna,
+    public.images,
+    public.collections,
+    public.products,
+    public.retail_signals,
+    public.forecasts,
+    public.prophecy,
+    public.saved_trends
+TO luxe_app_user;
+
+-- Explicitly revoke access from public PostgREST roles (strictly scoped to the 11 tables)
+REVOKE ALL ON TABLE
+    public.users,
+    public.trends,
+    public.trend_signals,
+    public.trend_dna,
+    public.images,
+    public.collections,
+    public.products,
+    public.retail_signals,
+    public.forecasts,
+    public.prophecy,
+    public.saved_trends
+FROM anon, authenticated;
+
+-- ============================================================================
+-- 4. ROW LEVEL SECURITY ENFORCEMENT & RUNTIME POLICIES
+-- ============================================================================
+
+-- 4.1 Enable Row Level Security on all 11 application tables
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.trends ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.trend_signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.trend_dna ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.images ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.collections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.retail_signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.forecasts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.prophecy ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_trends ENABLE ROW LEVEL SECURITY;
+
+-- 4.2 Explicit Application Runtime Policies
+-- NOTE: These policies grant backend queries executed by 'luxe_app_user' access.
+-- Because USING (true) applies uniformly across the role, these policies do NOT
+-- enforce per-user tenant boundaries at the SQL level.
+-- Tenant isolation is enforced exclusively by the FastAPI application layer
+-- (via user_id filters on authenticated queries).
+-- External PostgREST calls remain 100% blocked by default-deny and REVOKE ALL.
+CREATE POLICY app_runtime_all ON public.users FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.trends FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.trend_signals FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.trend_dna FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.images FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.collections FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.products FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.retail_signals FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.forecasts FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.prophecy FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+CREATE POLICY app_runtime_all ON public.saved_trends FOR ALL TO luxe_app_user USING (true) WITH CHECK (true);
+
+COMMIT;
+
