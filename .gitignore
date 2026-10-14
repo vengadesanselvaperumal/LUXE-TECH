@@ -1,3 +1,35 @@
 .env
 .env.*
 !.env.example
+
+# Python virtual environments
+.venv/
+venv/
+backend/venv/
+**/.venv/
+**/venv/
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend dependencies and build outputs
+node_modules/
+dist/
+build/
+
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+
+# Local databases and generated results
+*.db
+*.sqlite
+*.sqlite3
+
+# Local uploads — keep only if these are generated/private files
+# uploads/
